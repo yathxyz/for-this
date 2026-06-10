@@ -1,0 +1,117 @@
+;;;; Shared helpers: paths, processes, fuzzy matching, boot reporting.
+
+(in-package :vile)
+
+(defparameter *boot-ok* nil)
+
+(defun boot-ok-p () *boot-ok*)
+
+;;; --- paths ---------------------------------------------------------------
+
+(defun workdir ()
+  "The notes root, mirroring $WORKDIR from the Emacs config (default ~/work)."
+  (uiop:ensure-directory-pathname
+   (or (uiop:getenv "WORKDIR")
+       (merge-pathnames "work/" (user-homedir-pathname)))))
+
+(defun find-up (start name)
+  "Walk upward from directory START looking for file-or-directory NAME.
+Returns the containing directory pathname, or NIL."
+  (labels ((present-p (dir)
+             (or (uiop:probe-file* (merge-pathnames name dir))
+                 (uiop:directory-exists-p
+                  (uiop:ensure-directory-pathname (merge-pathnames name dir)))))
+           (try (dir)
+             (when dir
+               (if (present-p dir)
+                   dir
+                   (let ((parent (uiop:pathname-parent-directory-pathname dir)))
+                     (unless (equal parent dir)
+                       (try parent)))))))
+    (ignore-errors (try (uiop:ensure-directory-pathname start)))))
+
+(defun executable-find (name)
+  "Locate NAME on PATH; returns the full pathname or NIL."
+  (loop :for dir :in (uiop:split-string (or (uiop:getenv "PATH") "") :separator ":")
+        :unless (zerop (length dir))
+          :do (let ((path (ignore-errors
+                            (uiop:probe-file*
+                             (merge-pathnames name (uiop:ensure-directory-pathname dir))))))
+                (when path (return path)))))
+
+;;; --- fuzzy (orderless-style) matching -------------------------------------
+
+(defun orderless-filter (input candidates &key (key #'identity))
+  "Keep CANDIDATES whose KEY contains every space-separated token of INPUT,
+in any order, case-insensitively. Empty INPUT keeps everything."
+  (let ((tokens (remove-if (lambda (s) (zerop (length s)))
+                           (uiop:split-string (or input "") :separator " "))))
+    (if (null tokens)
+        candidates
+        (remove-if-not
+         (lambda (cand)
+           (let ((label (funcall key cand)))
+             (every (lambda (tok) (search tok label :test #'char-equal)) tokens)))
+         candidates))))
+
+;;; --- async processes -> buffers -------------------------------------------
+
+(defun append-text (buffer string)
+  "Append STRING to BUFFER from any thread, via the editor event queue."
+  (send-event (lambda ()
+                (insert-string (buffer-end-point buffer) string)
+                (redraw-display))))
+
+(defun append-line (buffer string)
+  (append-text buffer (concatenate 'string string (string #\Newline))))
+
+(defun stream-to-buffer (command buffer-name &key directory (clear t) on-exit)
+  "Run COMMAND (a list) asynchronously, streaming its output into BUFFER-NAME.
+Output is marshalled onto the editor thread; returns the buffer immediately.
+ON-EXIT, if given, is called on the editor thread with the exit code."
+  (let ((buffer (make-buffer buffer-name)))
+    (when clear (erase-buffer buffer))
+    (pop-to-buffer buffer)
+    (let ((process (uiop:launch-program command
+                                        :output :stream
+                                        :error-output :output
+                                        :directory directory)))
+      (bt2:make-thread
+       (lambda ()
+         (unwind-protect
+              (with-open-stream (out (uiop:process-info-output process))
+                (loop :for line := (read-line out nil)
+                      :while line
+                      :do (append-line buffer line)))
+           (let ((code (ignore-errors (uiop:wait-process process))))
+             (append-line buffer (format nil "~%[exit ~a]" code))
+             (when on-exit
+               (send-event (lambda () (funcall on-exit code)))))))
+       :name (format nil "vile/~a" buffer-name)))
+    buffer))
+
+;;; --- boot report (consumed by scripts/boot-test.sh) -----------------------
+
+(defun write-boot-report (path)
+  "Write a machine-checkable report of the boot state to PATH."
+  (with-open-file (s path :direction :output
+                          :if-exists :supersede
+                          :if-does-not-exist :create)
+    (let ((boot-error (symbol-value (find-symbol "*VILE-BOOT-ERROR*" :lem-user))))
+      (format s "boot-error: ~a~%" (or boot-error "none"))
+      (format s "boot-ok: ~a~%" (boot-ok-p))
+      (format s "vi-mode: ~a~%" (typep (current-global-mode) 'lem-vi-mode:vi-mode))
+      (format s "leader: ~a~%" (variable-value 'lem-vi-mode/leader:leader-key :global))
+      (dolist (entry '(("rust-spec" lem-rust-mode:rust-mode)
+                       ("nix-spec" lem-nix-mode:nix-mode)
+                       ("python-spec" lem-python-mode:python-mode)
+                       ("markdown-spec" lem-markdown-mode:markdown-mode)))
+        (destructuring-bind (label mode) entry
+          (let ((spec (lem-lsp-mode/spec:get-language-spec mode)))
+            (format s "~a: ~a~%" label
+                    (and spec (lem-lsp-mode/spec:get-spec-command spec))))))
+      (format s "commands: ~{~a~^ ~}~%"
+              (loop :for name :in '("VILE-VCS-STATUS" "VILE-ROAM-FIND" "VILE-LLM-SEND"
+                                    "VILE-COMPILE" "VILE-CAPTURE" "VILE-FORMAT-BUFFER")
+                    :collect (if (find-symbol name :vile) "t" name)))))
+  path)
