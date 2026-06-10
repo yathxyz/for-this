@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
 # Boot Lem with the VILE config inside tmux and assert a clean load.
-# Usage: scripts/boot-test.sh
+# Safe to run concurrently: session/report names are unique per invocation.
 set -uo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$here/scripts/tui-driver.sh"
 
-report=/tmp/vile-boot-report
+id="${VILE_CHECK_ID:-$$}"
+session="vile-boot-$id"
+report="/tmp/vile-boot-report-$id"
 rm -f "$report"
 
-lem_start vile-boot --log-filename /tmp/vile-lem.log \
+lem_start "$session" --log-filename "/tmp/vile-lem-$id.log" \
   --eval "'(uiop:symbol-call :vile :write-boot-report \"$report\")'"
 
 ok=0
@@ -18,8 +20,8 @@ for _ in $(seq 1 120); do
   sleep 0.5
 done
 
-screen="$(lem_capture vile-boot 2>/dev/null || true)"
-lem_stop vile-boot
+screen="$(lem_capture "$session" 2>/dev/null || true)"
+lem_stop "$session"
 
 if [ "$ok" != 1 ]; then
   echo "FAIL: boot report never appeared; last screen:"

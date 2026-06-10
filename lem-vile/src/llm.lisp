@@ -96,13 +96,21 @@
                    (append-line buffer (format nil "~%[llm request failed, curl exit ~a]" code))))))
          :name "vile/llm")))))
 
+(defvar *llm-backend* :openrouter
+  "Active backend. CLI-agent backends (apps/llm-cli.lisp) add more.")
+
+(defgeneric llm-backend-stream (backend prompt)
+  (:documentation "Stream PROMPT's reply into the LLM buffer for BACKEND.")
+  (:method ((backend (eql :openrouter)) prompt)
+    (llm-stream prompt)))
+
 (define-command vile-llm-send () ()
   "Send region (or buffer up to point) to the LLM, streaming the reply
 (gptel-send)."
   (let ((text (string-trim '(#\Space #\Tab #\Newline) (llm-source-text))))
     (if (zerop (length text))
         (message "Nothing to send")
-        (llm-stream text))))
+        (llm-backend-stream *llm-backend* text))))
 
 (define-command vile-llm-ask () ()
   "Prompt for an instruction, prepend it to the region/buffer text, send
@@ -110,9 +118,10 @@
   (let ((instruction (prompt-for-string "LLM instruction: "))
         (text (string-trim '(#\Space #\Tab #\Newline) (llm-source-text))))
     (when (plusp (length instruction))
-      (llm-stream (if (zerop (length text))
-                      instruction
-                      (format nil "~a~%~%~a" instruction text))))))
+      (llm-backend-stream *llm-backend*
+                          (if (zerop (length text))
+                              instruction
+                              (format nil "~a~%~%~a" instruction text))))))
 
 (define-command vile-llm-set-model () ()
   "Choose the OpenRouter model (gptel preset switching, simplified)."
