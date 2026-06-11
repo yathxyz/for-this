@@ -15,17 +15,23 @@ terminal (ncurses) frontend, multi-threaded SBCL image.
 | `docs/port-map.md` | Emacs package → Lem equivalent mapping + gap report |
 | `docs/porting-conventions.md` | Hard rules every module follows |
 | `scripts/` | tmux-based TUI test harness |
-| `vendor/lem` | Lem source clone (gitignored; used for builds + API grounding) |
+| `flake.nix` | Pins Lem (its own flake) and re-exposes the `lem-ncurses` build |
+| `vendor/lem` | Optional Lem source checkout (gitignored; only for grepping Lem's APIs) |
 
 ## Build / install Lem
 
-Lem is not in nixpkgs; it ships its own flake:
+Lem is not in nixpkgs; it ships its own flake, which this repo pins as an
+input. Build the ncurses image straight from this repo — no manual clone:
 
 ```sh
-git clone --depth 1 https://github.com/lem-project/lem vendor/lem
-nix build ./vendor/lem#lem-ncurses -o result-lem
+nix build .#lem-ncurses -o result-lem
 ./result-lem/bin/lem
 ```
+
+The pinned Lem revision lives in `flake.lock`; bump it with `nix flake update`.
+For grepping Lem's source while porting you can still clone it on the side
+(`git clone --depth 1 https://github.com/lem-project/lem vendor/lem`), but it
+is no longer needed to build.
 
 The config is wired in via a 3-line `~/.config/lem/init.lisp` shim that loads
 `lem-vile/init.lisp` from this repo, which in turn loads the `vile` ASDF system.
