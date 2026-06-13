@@ -32,7 +32,7 @@ SESSIONS=()
 register_session() { SESSIONS+=("$1"); }
 cleanup() {
   for s in "${SESSIONS[@]:-}"; do
-    [ -n "$s" ] && tmux kill-session -t "$s" 2>/dev/null
+    [ -n "$s" ] && tmux_cmd kill-session -t "$s" 2>/dev/null
   done
 }
 trap cleanup EXIT INT TERM
@@ -63,7 +63,7 @@ fail() { # fail <check-name> <message> <session-for-screen-dump>
 boot_with_file() { # boot_with_file <session> <file> <wait-ere> <check-name>
   local s="$1" file="$2" ere="$3" check="$4"
   register_session "$s"
-  lem_start "$s" "$file"
+  lem_start_vile "$s" "$file"
   if ! lem_wait_for "$s" "$ere" "$BOOT_TIMEOUT"; then
     fail "$check" "Lem never opened $file (waited ${BOOT_TIMEOUT}s)" "$s"
     return 1
@@ -78,14 +78,14 @@ send_chord() { # send_chord <session> <key1> <key2> ...
   local s="$1"; shift
   local k
   for k in "$@"; do
-    tmux send-keys -t "$s" "$k"
+    tmux_cmd send-keys -t "$s" "$k"
     sleep "$KEY_DELAY"
   done
 }
 
 # Type a literal string in one shot (insert mode).
 send_text() { # send_text <session> <string>
-  tmux send-keys -t "$1" -l "$2"
+  tmux_cmd send-keys -t "$1" -l "$2"
 }
 
 # ===========================================================================
@@ -122,11 +122,11 @@ fi
 # Reuse S1 (already on the scratch file, cursor at line 1 col 0).
 if [ "${RESULT[01-boot-normal]:-}" = PASS ]; then
   MARKER="ZZINSERTEDZZ"
-  tmux send-keys -t "$S1" "i"          # enter insert mode
+  tmux_cmd send-keys -t "$S1" "i"          # enter insert mode
   sleep "$KEY_DELAY"
   send_text "$S1" "$MARKER"
   sleep "$KEY_DELAY"
-  tmux send-keys -t "$S1" Escape       # back to normal
+  tmux_cmd send-keys -t "$S1" Escape       # back to normal
   sleep "$KEY_DELAY"
   if lem_wait_for "$S1" "$MARKER" "$WAIT_TIMEOUT"; then
     pass "02-insert-roundtrip" "inserted text visible"
@@ -144,12 +144,12 @@ fi
 S3="vile-it3-$id"
 if boot_with_file "$S3" "$SCRATCH" 'first known line' "03-leader-compile"; then
   # Make sure we are in NORMAL (Escape is harmless if already normal).
-  tmux send-keys -t "$S3" Escape
+  tmux_cmd send-keys -t "$S3" Escape
   sleep "$KEY_DELAY"
   send_chord "$S3" "Space" "c" "c"
   if lem_wait_for "$S3" 'Compile \[' "$WAIT_TIMEOUT"; then
     pass "03-leader-compile" "Compile prompt appeared"
-    tmux send-keys -t "$S3" Escape       # cancel the prompt
+    tmux_cmd send-keys -t "$S3" Escape       # cancel the prompt
     sleep "$KEY_DELAY"
   else
     fail "03-leader-compile" "no 'Compile [' prompt after SPC c c" "$S3"
@@ -164,17 +164,17 @@ fi
 gc_check() { # gc_check <session> <file> <wait-ere> <expected-comment-ere> <label>
   local s="$1" file="$2" wait_ere="$3" cmt_ere="$4" label="$5"
   register_session "$s"
-  lem_start "$s" "$file"
+  lem_start_vile "$s" "$file"
   if ! lem_wait_for "$s" "$wait_ere" "$BOOT_TIMEOUT"; then
     echo "  (gc/$label) file never opened" >&2
     return 2
   fi
   sleep 0.5
-  tmux send-keys -t "$s" Escape          # ensure NORMAL
+  tmux_cmd send-keys -t "$s" Escape          # ensure NORMAL
   sleep "$KEY_DELAY"
-  tmux send-keys -t "$s" "g"             # move cursor to top with gg
+  tmux_cmd send-keys -t "$s" "g"             # move cursor to top with gg
   sleep "$KEY_DELAY"
-  tmux send-keys -t "$s" "g"
+  tmux_cmd send-keys -t "$s" "g"
   sleep "$KEY_DELAY"
   send_chord "$s" "g" "c" "j"            # gc + j motion = comment 2 lines
   sleep 0.6
@@ -216,21 +216,21 @@ fi
 # ===========================================================================
 S5="vile-it5-$id"
 if boot_with_file "$S5" "$SNIPEFIX" 'alpha beta gamma' "05-snipe"; then
-  tmux send-keys -t "$S5" Escape
+  tmux_cmd send-keys -t "$S5" Escape
   sleep "$KEY_DELAY"
   # Move to absolute line start: gg then 0.
   send_chord "$S5" "g" "g"
-  tmux send-keys -t "$S5" "0"
+  tmux_cmd send-keys -t "$S5" "0"
   sleep "$KEY_DELAY"
   # Snipe forward to "be".
   send_chord "$S5" "s" "b" "e"
   sleep "$KEY_DELAY"
   # Insert an X at the landing point and leave insert mode.
-  tmux send-keys -t "$S5" "i"
+  tmux_cmd send-keys -t "$S5" "i"
   sleep "$KEY_DELAY"
   send_text "$S5" "X"
   sleep "$KEY_DELAY"
-  tmux send-keys -t "$S5" Escape
+  tmux_cmd send-keys -t "$S5" Escape
   sleep "$KEY_DELAY"
   if lem_wait_for "$S5" 'alpha Xbeta gamma' "$WAIT_TIMEOUT"; then
     pass "05-snipe" "cursor landed before 'beta' (alpha Xbeta gamma)"
@@ -244,12 +244,12 @@ fi
 # ===========================================================================
 S6="vile-it6-$id"
 if boot_with_file "$S6" "$SCRATCH" 'first known line' "06-find-file"; then
-  tmux send-keys -t "$S6" Escape
+  tmux_cmd send-keys -t "$S6" Escape
   sleep "$KEY_DELAY"
   send_chord "$S6" "Space" "f" "f"
   if lem_wait_for "$S6" 'Find File:' "$WAIT_TIMEOUT"; then
     pass "06-find-file" "Find File prompt appeared"
-    tmux send-keys -t "$S6" Escape
+    tmux_cmd send-keys -t "$S6" Escape
     sleep "$KEY_DELAY"
   else
     fail "06-find-file" "no 'Find File:' prompt after SPC f f" "$S6"
@@ -262,9 +262,9 @@ fi
 # ===========================================================================
 S7="vile-it7-$id"
 if boot_with_file "$S7" "$SCRATCH" 'first known line' "07-mx-orderless"; then
-  tmux send-keys -t "$S7" Escape
+  tmux_cmd send-keys -t "$S7" Escape
   sleep "$KEY_DELAY"
-  tmux send-keys -t "$S7" M-x
+  tmux_cmd send-keys -t "$S7" M-x
   if lem_wait_for "$S7" 'Command:' "$WAIT_TIMEOUT"; then
     sleep "$KEY_DELAY"
     send_text "$S7" "roam find"
@@ -274,7 +274,7 @@ if boot_with_file "$S7" "$SCRATCH" 'first known line' "07-mx-orderless"; then
     else
       fail "07-mx-orderless" "vile-roam-find not in completion popup" "$S7"
     fi
-    tmux send-keys -t "$S7" Escape
+    tmux_cmd send-keys -t "$S7" Escape
     sleep "$KEY_DELAY"
   else
     fail "07-mx-orderless" "M-x did not open a Command prompt" "$S7"

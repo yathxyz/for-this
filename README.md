@@ -15,20 +15,25 @@ terminal (ncurses) frontend, multi-threaded SBCL image.
 | `docs/port-map.md` | Emacs package → Lem equivalent mapping + gap report |
 | `docs/porting-conventions.md` | Hard rules every module follows |
 | `scripts/` | tmux-based TUI test harness |
-| `vendor/lem` | Lem source clone (gitignored; used for builds + API grounding) |
 
-## Build / install Lem
+## Run
 
-Lem is not in nixpkgs; it ships its own flake:
+The flake pins upstream Lem and exposes this port as a runnable app:
 
 ```sh
-git clone --depth 1 https://github.com/lem-project/lem vendor/lem
-nix build ./vendor/lem#lem-ncurses -o result-lem
-./result-lem/bin/lem
+nix run
 ```
 
-The config is wired in via a 3-line `~/.config/lem/init.lisp` shim that loads
-`lem-vile/init.lisp` from this repo, which in turn loads the `vile` ASDF system.
+For development:
+
+```sh
+nix develop
+vile
+```
+
+The wrapper starts Lem without the user's normal init file, loads
+`lem-vile/init.lisp`, and keeps ASDF build outputs under the user cache instead
+of writing `.fasl` files into the source tree.
 
 ## What's in the port
 
@@ -48,10 +53,16 @@ See `docs/port-map.md` for the per-package disposition and known divergences.
 
 ## Testing
 
-All scripts are parallel-safe via `VILE_CHECK_ID`:
+`nix flake check` runs the package, compile, and boot checks. The interactive
+TUI checks are also exposed as flake apps:
 
 ```sh
-VILE_CHECK_ID=me ./scripts/compile-check.sh    # force-recompile, full diagnostics, must end LOAD OK
-VILE_CHECK_ID=me ./scripts/boot-test.sh        # boots lem in tmux, asserts the boot report
-VILE_CHECK_ID=me ./scripts/orderless-test.sh   # interactive: multi-token prompt filtering
+nix flake check
+nix run .#compile-check
+nix run .#boot-test
+nix run .#orderless-test
+nix run .#interactive-test
 ```
+
+The underlying scripts remain parallel-safe via `VILE_CHECK_ID` and accept
+`LEM_BIN`/`VILE_SOURCE` overrides for direct debugging.

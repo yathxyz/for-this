@@ -2,21 +2,78 @@
 # Sourceable tmux driver for testing Lem's TUI.
 # Conventions: one tmux session per test, 200x50 pane, all output via capture-pane.
 
-LEM_BIN="${LEM_BIN:-$(dirname "${BASH_SOURCE[0]}")/../result-lem/bin/lem}"
+VILE_ROOT="${VILE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+VILE_SOURCE="${VILE_SOURCE:-$VILE_ROOT/lem-vile}"
+TMUX_BIN="${TMUX_BIN:-tmux}"
+TMUX_SOCKET="${TMUX_SOCKET:-vile-${VILE_CHECK_ID:-$$}}"
+
+if [ -z "${LEM_BIN:-}" ]; then
+  if command -v lem >/dev/null 2>&1; then
+    LEM_BIN="$(command -v lem)"
+  elif [ -x "$VILE_ROOT/result-lem/bin/lem" ]; then
+    LEM_BIN="$VILE_ROOT/result-lem/bin/lem"
+  else
+    LEM_BIN=""
+  fi
+fi
+
+vile_lisp_string() {
+  local value="${1//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  printf '"%s"' "$value"
+}
+
+vile_load_form() {
+  printf '(load #P%s)' "$(vile_lisp_string "$VILE_SOURCE/init.lisp")"
+}
+
+vile_with_loaded_form() {
+  printf '(progn %s %s)' "$(vile_load_form)" "$1"
+}
+
+vile_configure_asdf_output() {
+  local cache_home
+  cache_home="${XDG_CACHE_HOME:-${HOME:-${TMPDIR:-/tmp}}/.cache}"
+  VILE_ASDF_CACHE="${VILE_ASDF_CACHE:-$cache_home/vile/asdf}"
+  mkdir -p "$VILE_ASDF_CACHE"
+  export ASDF_OUTPUT_TRANSLATIONS="$VILE_SOURCE:$VILE_ASDF_CACHE:/nix/store:/nix/store${ASDF_OUTPUT_TRANSLATIONS:+:$ASDF_OUTPUT_TRANSLATIONS}"
+}
+
+vile_configure_asdf_output
+
+tmux_cmd() {
+  "$TMUX_BIN" -L "$TMUX_SOCKET" "$@"
+}
 
 lem_start() { # lem_start <session> [lem-args...]
   local s="$1"; shift
-  tmux kill-session -t "$s" 2>/dev/null
-  tmux new-session -d -s "$s" -x 200 -y 50 "$LEM_BIN $*"
+  if [ -z "$LEM_BIN" ]; then
+    echo "LEM_BIN is not set and no lem executable was found on PATH" >&2
+    return 127
+  fi
+  tmux_cmd kill-session -t "$s" 2>/dev/null
+  local command
+  printf -v command "%q " "$LEM_BIN" "$@"
+  tmux_cmd new-session -d -s "$s" -x 200 -y 50 "$command"
+}
+
+lem_start_vile() { # lem_start_vile <session> [lem-args...]
+  local s="$1"; shift
+  lem_start "$s" --eval "$(vile_load_form)" "$@"
+}
+
+lem_start_vile_eval() { # lem_start_vile_eval <session> <form> [lem-args...]
+  local s="$1" form="$2"; shift 2
+  lem_start "$s" --eval "$(vile_with_loaded_form "$form")" "$@"
 }
 
 lem_keys() { # lem_keys <session> <tmux-send-keys args...>
   local s="$1"; shift
-  tmux send-keys -t "$s" "$@"
+  tmux_cmd send-keys -t "$s" "$@"
 }
 
 lem_capture() { # lem_capture <session>
-  tmux capture-pane -t "$1" -p
+  tmux_cmd capture-pane -t "$1" -p
 }
 
 lem_wait_for() { # lem_wait_for <session> <grep-ERE> [timeout-sec=10]
@@ -31,5 +88,5 @@ lem_wait_for() { # lem_wait_for <session> <grep-ERE> [timeout-sec=10]
 }
 
 lem_stop() { # lem_stop <session>
-  tmux kill-session -t "$1" 2>/dev/null
+  tmux_cmd kill-session -t "$1" 2>/dev/null
 }

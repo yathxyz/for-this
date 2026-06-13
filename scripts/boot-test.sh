@@ -8,11 +8,13 @@ source "$here/scripts/tui-driver.sh"
 
 id="${VILE_CHECK_ID:-$$}"
 session="vile-boot-$id"
-report="/tmp/vile-boot-report-$id"
+tmp="${TMPDIR:-/tmp}"
+report="$tmp/vile-boot-report-$id"
 rm -f "$report"
 
-lem_start "$session" --log-filename "/tmp/vile-lem-$id.log" \
-  --eval "'(uiop:symbol-call :vile :write-boot-report \"$report\")'"
+lem_start_vile_eval "$session" \
+  "(uiop:symbol-call :vile :write-boot-report $(vile_lisp_string "$report"))" \
+  --log-filename "$tmp/vile-lem-$id.log"
 
 ok=0
 for _ in $(seq 1 120); do

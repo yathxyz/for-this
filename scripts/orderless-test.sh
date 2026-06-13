@@ -9,7 +9,7 @@ source "$here/scripts/tui-driver.sh"
 
 id="${VILE_CHECK_ID:-$$}"
 s="vile-orderless-$id"
-lem_start "$s"
+lem_start_vile "$s"
 sleep 5
 lem_keys "$s" M-x
 sleep 1

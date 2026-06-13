@@ -8,8 +8,23 @@ source "$here/scripts/tui-driver.sh"
 
 id="${VILE_CHECK_ID:-$$}"
 session="vile-compile-$id"
-log="/tmp/vile-compile-$id.log"
-form="/tmp/vile-compile-check-$id.lisp"
+tmp="${TMPDIR:-/tmp}"
+log="$tmp/vile-compile-$id.log"
+form="$tmp/vile-compile-check-$id.lisp"
+check_src="$tmp/vile-compile-src-$id"
+
+rm -rf "$check_src"
+cp -R "$VILE_SOURCE" "$check_src"
+chmod -R u+w "$check_src"
+VILE_SOURCE="$check_src"
+VILE_ASDF_CACHE="$tmp/vile-asdf-$id"
+vile_configure_asdf_output
+
+cleanup() {
+  lem_stop "$session"
+  rm -rf "$form" "$check_src" "$VILE_ASDF_CACHE"
+}
+trap cleanup EXIT INT TERM
 
 cat > "$form" <<EOF
 (with-open-file (s "$log" :direction :output :if-exists :supersede)
@@ -17,7 +32,7 @@ cat > "$form" <<EOF
         (*standard-output* s))
     (handler-case
         (progn
-          (asdf:load-asd #P"$here/lem-vile/vile.asd")
+          (asdf:load-asd #P"$check_src/vile.asd")
           (asdf:load-system "vile" :force t)
           (format s "~%LOAD OK~%"))
       (error (e) (format s "~%TOP-ERROR: ~a~%" e)))
@@ -25,11 +40,10 @@ cat > "$form" <<EOF
 EOF
 
 rm -f "$log"
-lem_start "$session" -q --eval "'(load \"$form\")'"
+lem_start "$session" -q --eval "(load \"$form\")"
 for _ in $(seq 1 240); do
   [ -f "$log" ] && grep -qE 'LOAD OK|TOP-ERROR' "$log" && break
   sleep 0.5
 done
-lem_stop "$session"
 cat "$log" 2>/dev/null || echo "no log produced"
 grep -q 'LOAD OK' "$log" 2>/dev/null
